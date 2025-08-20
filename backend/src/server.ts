@@ -107,6 +107,100 @@ app.delete('/api/todos/:id', async (req, res) => {
   }
 });
 
+// AI Recommendations endpoint
+app.get('/api/recommendations', async (req, res) => {
+  try {
+    const todosResult = await pool.query('SELECT * FROM todos ORDER BY created_at DESC');
+    const todos = todosResult.rows;
+    
+    const recommendations = generateRecommendations(todos);
+    res.json(recommendations);
+  } catch (error) {
+    console.error('Error generating recommendations:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// AI recommendation logic
+function generateRecommendations(todos: Todo[]) {
+  const completedTodos = todos.filter(todo => todo.completed);
+  const pendingTodos = todos.filter(todo => !todo.completed);
+  const totalTodos = todos.length;
+  const completionRate = totalTodos > 0 ? (completedTodos.length / totalTodos) * 100 : 0;
+
+  const suggestions = [];
+  const insights = [];
+
+  // Completion rate insights
+  if (completionRate > 80) {
+    insights.push("🎉 素晴らしい！完了率が高く、生産性が優秀です");
+    suggestions.push("新しいチャレンジングなタスクを追加してみましょう");
+  } else if (completionRate > 50) {
+    insights.push("👍 良いペースで進んでいます");
+    suggestions.push("タスクを小さく分割すると完了しやすくなります");
+  } else {
+    insights.push("💪 まずは小さなタスクから始めてみましょう");
+    suggestions.push("1日1つのタスク完了を目標にしてみてください");
+  }
+
+  // Pattern analysis
+  const commonWords = findCommonWords(todos.map(todo => todo.title));
+  if (commonWords.length > 0) {
+    insights.push(`🔍 よく使われるキーワード: ${commonWords.slice(0, 3).join(', ')}`);
+    suggestions.push(`"${commonWords[0]}"関連のタスクをまとめて処理すると効率的です`);
+  }
+
+  // Time-based suggestions
+  const now = new Date();
+  const hour = now.getHours();
+  
+  if (hour >= 9 && hour <= 11) {
+    suggestions.push("🌅 午前中は集中力が高い時間です。重要なタスクに取り組みましょう");
+  } else if (hour >= 14 && hour <= 16) {
+    suggestions.push("🌞 午後は軽めのタスクや整理作業がおすすめです");
+  } else if (hour >= 20) {
+    suggestions.push("🌙 夜は明日の準備や振り返りに適しています");
+  }
+
+  // Pending todos analysis
+  if (pendingTodos.length > 10) {
+    suggestions.push("📝 未完了タスクが多めです。優先度の高いものから順番に取り組みましょう");
+  } else if (pendingTodos.length === 0) {
+    suggestions.push("🎯 全てのタスクが完了しています！新しい目標を設定してみましょう");
+  }
+
+  return {
+    insights,
+    suggestions,
+    stats: {
+      totalTodos,
+      completedTodos: completedTodos.length,
+      pendingTodos: pendingTodos.length,
+      completionRate: Math.round(completionRate)
+    }
+  };
+}
+
+function findCommonWords(titles: string[]): string[] {
+  const wordCount: { [key: string]: number } = {};
+  
+  titles.forEach(title => {
+    const words = title.toLowerCase()
+      .replace(/[^\w\s]/g, '')
+      .split(/\s+/)
+      .filter(word => word.length > 2);
+    
+    words.forEach(word => {
+      wordCount[word] = (wordCount[word] || 0) + 1;
+    });
+  });
+
+  return Object.entries(wordCount)
+    .filter(([_, count]) => count > 1)
+    .sort(([_, a], [__, b]) => b - a)
+    .map(([word, _]) => word);
+}
+
 app.listen(port, async () => {
   console.log(`Server running on port ${port}`);
   await initializeDatabase();
